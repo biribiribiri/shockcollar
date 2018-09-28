@@ -1,6 +1,12 @@
 # sd400
 Software remote for the Sportdog SD-400 Collar. Written in Go.
 
+## Disclaimers
+
+This software uses [rpitx](https://github.com/F5OEO/rpitx) to transmit RF
+signals directly from the Raspberry Pi's GPIO pins. Before you transmit, know
+your laws. You are responsible for using this software legally.
+
 ## Introduction
 
 The Sportdog Fieldtrainer 400 (SD-400) is a shock collar with momentary
