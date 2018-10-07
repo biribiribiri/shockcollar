@@ -3,22 +3,21 @@
 // Uses rpitx to transmit to the collar. To use, plug a wire on GPIO 4, i.e.
 // Pin 7 of the GPIO header (header P1). Note that rpitx requires root.
 
-package main
+package sd400
 
 import (
 	"bufio"
 	"bytes"
-	"flag"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"os/exec"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/golang/glog"
 	wav "github.com/youpy/go-wav"
 )
 
@@ -46,21 +45,67 @@ const (
 	REMOTE1 = "6695"
 	REMOTE2 = "999a"
 
-	CMD_BEEP       = "59"
 	CMD_NICK       = "6a"
 	CMD_CONTINUOUS = "66"
-
-	ARG_BEEP   = "a9"
-	ARG_LEVEL1 = "a9"
-	ARG_LEVEL2 = "a6"
-	ARG_LEVEL3 = "a5"
-	ARG_LEVEL4 = "9a"
-	ARG_LEVEL5 = "99"
-	ARG_LEVEL6 = "95"
-	ARG_LEVEL7 = "6a"
-	ARG_LEVEL8 = "55"
 )
 
+type Sd400 struct {
+	symbols       map[rune][]wav.Sample // Map from symbol ('0', '1', '2') to output waveform.
+	remoteId      string
+	rpitxPath     string
+	wavOutputPath string
+	sampleRate    int // Output sample rate in Hz
+}
+
+func New(remoteId string, rpitxPath string, wavOutputPath string) Sd400 {
+	s := Sd400{remoteId: remoteId, rpitxPath: rpitxPath, wavOutputPath: wavOutputPath, sampleRate: 44000}
+	s.generateSymbols()
+	return s
+}
+
+// Sends a beep command for the specified duration.
+func (s *Sd400) Beep(duration time.Duration) {
+	const CMD_BEEP = "59"
+	const ARG_BEEP = "a9"
+	s.sendCmd(s.continuousCmd(CMD_BEEP, ARG_BEEP, duration))
+}
+
+var shockArgs []string = []string{
+	"a9",
+	"a6",
+	"a5",
+	"9a",
+	"99",
+	"95",
+	"6a",
+	"55",
+}
+
+func (s *Sd400) Nick(level int) {
+	if level < 0 {
+		level = 0
+	}
+	if level > len(shockArgs)-1 {
+		level = len(shockArgs) - 1
+	}
+	s.sendCmd(s.momentaryCmd(CMD_NICK, shockArgs[level]))
+}
+
+// Sends a continuous stimulation command for the specified intensity and
+// duration.
+func (s *Sd400) Shock(level int, duration time.Duration) {
+	if level < 0 {
+		level = 0
+	}
+	if level > len(shockArgs)-1 {
+		level = len(shockArgs) - 1
+	}
+	s.sendCmd(s.continuousCmd(CMD_CONTINUOUS, shockArgs[level], duration))
+}
+
+// hex2bin converts a string containing an arbitrary length of hexadecimal
+// nibbles to a binary string representation with no truncation of leading
+// zeros.
 func hex2bin(hexStr string) string {
 	var out bytes.Buffer
 	for _, c := range hexStr {
@@ -76,48 +121,48 @@ func hex2bin(hexStr string) string {
 	return out.String()
 }
 
-func momentaryCmd(remoteId string, cmdType string, cmdArg string) string {
-	return fmt.Sprint(CMD_START, PREAMBLE, hex2bin(remoteId), hex2bin(cmdType), hex2bin(cmdArg), MOMENTARY_CMD_END)
+func (s *Sd400) momentaryCmd(cmdType string, cmdArg string) string {
+	return fmt.Sprint(CMD_START, PREAMBLE, hex2bin(s.remoteId), hex2bin(cmdType), hex2bin(cmdArg), MOMENTARY_CMD_END)
 }
 
-func continousCmd(remoteId string, cmdType string, cmdArg string, duration time.Duration) string {
-	cmd := fmt.Sprint(PREAMBLE, hex2bin(remoteId), hex2bin(cmdType), hex2bin(cmdArg), CONTINUOUS_CMD_BREAK)
+func (s *Sd400) continuousCmd(cmdType string, cmdArg string, duration time.Duration) string {
+	cmd := fmt.Sprint(PREAMBLE, hex2bin(s.remoteId), hex2bin(cmdType), hex2bin(cmdArg), CONTINUOUS_CMD_BREAK)
 	sampleTime := 4 * time.Millisecond
 	cmdTime := time.Duration(len(cmd)) * sampleTime
 	repeats := int(duration / cmdTime)
-	if repeats < 1 {
-		repeats = 1
+	// In practice, the collar does not respond if there are fewer than 2 of
+	// the repeated section.
+	if repeats < 2 {
+		repeats = 2
 	}
 
 	return fmt.Sprint(CMD_START, strings.Repeat(cmd, repeats), CONTINUOUS_CMD_END)
 }
 
-func generateSymbols() map[rune][]wav.Sample {
-	symbols := make(map[rune][]wav.Sample)
+func (s *Sd400) generateSymbols() {
+	s.symbols = make(map[rune][]wav.Sample)
 
-	const sampleRate = 44000 // Hz
 	const symbolTime = 0.004 // s
 	const f1 = 5000
 
-	samplesPerSymbol := symbolTime * sampleRate
+	samplesPerSymbol := symbolTime * float64(s.sampleRate)
 
-	symbols['0'] = make([]wav.Sample, int(samplesPerSymbol))
-	symbols['1'] = make([]wav.Sample, int(samplesPerSymbol))
+	s.symbols['0'] = make([]wav.Sample, int(samplesPerSymbol))
+	s.symbols['1'] = make([]wav.Sample, int(samplesPerSymbol))
 
 	for i := 0; i < int(samplesPerSymbol); i++ {
-		symbols['0'][i].Values[0] = math.MaxInt16
-		symbols['1'][i].Values[0] = int(math.MaxInt16 * math.Cos(2.0*math.Pi*f1*float64(i)*(1.0/sampleRate)))
+		s.symbols['0'][i].Values[0] = math.MaxInt16
+		s.symbols['1'][i].Values[0] = int(math.MaxInt16 * math.Cos(2.0*math.Pi*f1*float64(i)*(1.0/float64(s.sampleRate))))
 	}
 	// The '2' symbol is the same as '1' but half the length.
-	symbols['2'] = symbols['1'][:len(symbols['1'])/2]
-	return symbols
+	s.symbols['2'] = s.symbols['1'][:len(s.symbols['1'])/2]
 }
 
-func bin2waveform(binStr string, symbols map[rune][]wav.Sample) []wav.Sample {
-	log.Println("binstring", binStr)
+func (s *Sd400) bin2waveform(binStr string) []wav.Sample {
+	glog.V(2).Info("binary waveform: ", binStr)
 	var out []wav.Sample
 	for _, c := range binStr {
-		s, ok := symbols[c]
+		s, ok := s.symbols[c]
 		if !ok {
 			log.Fatalln("bin2waveform: invalid symbol", s)
 		}
@@ -126,19 +171,17 @@ func bin2waveform(binStr string, symbols map[rune][]wav.Sample) []wav.Sample {
 	return out
 }
 
-func sendCmd(binStr string) {
-	const sampleRate = 44000 // Hz
+func (s *Sd400) sendCmd(binStr string) {
+	samples := s.bin2waveform(binStr)
+	samples = append(samples, make([]wav.Sample, s.sampleRate/10)...)
 
-	symbols := generateSymbols()
-	samples := bin2waveform(binStr, symbols)
-
-	fileName := "result.wav"
+	fileName := s.wavOutputPath + "result.wav"
 	file, err := os.Create(fileName)
 	if err != nil {
 		log.Fatal("Cannot create file", err)
 	}
 	fileBuf := bufio.NewWriterSize(file, 10000000)
-	wavWriter := wav.NewWriter(fileBuf, uint32(len(samples)), 2, sampleRate, 16)
+	wavWriter := wav.NewWriter(fileBuf, uint32(len(samples)), 2, uint32(s.sampleRate), 16)
 	if err = wavWriter.WriteSamples(samples); err != nil {
 		log.Fatal(err)
 	}
@@ -148,49 +191,7 @@ func sendCmd(binStr string) {
 	}
 	file.Close()
 
-	rpitx := exec.Command(*rpitx, "-m", "IQ", "-i", fileName, "-f", "27255", "-s", strconv.Itoa(sampleRate), "-c", "1")
+	rpitx := exec.Command(s.rpitxPath, "-m", "IQ", "-i", fileName, "-f", "27255", "-s", strconv.Itoa(s.sampleRate), "-c", "1")
 	out, err := rpitx.Output()
 	log.Println(string(out), err)
-}
-
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-var rpitx = flag.String("rpitx", os.Getenv("HOME")+"/src/rpitx/rpitx", "path to rpitx")
-
-func main() {
-	flag.Parse()
-	if *rpitx != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
-
-	cmd := continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL1, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL2, 2*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL3, 3*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL4, 4*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL5, 5*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL6, 6*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL7, 7*time.Second) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-		continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL8, 15*time.Second) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL1) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL2) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL3) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL4) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL5) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL6) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL7) +
-		momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL8) +
-		continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second)
-	sendCmd(cmd)
 }
