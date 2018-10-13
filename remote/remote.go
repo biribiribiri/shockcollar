@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"runtime/pprof"
 	"strconv"
@@ -10,11 +13,16 @@ import (
 
 	"github.com/abiosoft/ishell"
 	"github.com/biribiribiri/sd400"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var rpitx = flag.String("rpitx", os.Getenv("HOME")+"/src/rpitx/rpitx", "path to rpitx")
 var wavOutputPath = flag.String("wavpath", "", "folder to store wav files to send to rpitx")
+var grpcPort = flag.String("port", ":50051", "Port for GRPC server to listen on")
 
 func main() {
 	flag.Parse()
@@ -27,7 +35,38 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	remote := sd400.New(sd400.REMOTE1, *rpitx, *wavOutputPath)
+	collar := sd400.New(sd400.REMOTE1, *rpitx, *wavOutputPath)
+
+	// Start gRPC server.
+	lis, err := net.Listen("tcp", *grpcPort)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
+	s := grpc.NewServer()
+	sd400.RegisterCollarServer(s, &collar)
+	reflection.Register(s)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
+
+	router := mux.NewRouter()
+
+	cmdHandler := func(w http.ResponseWriter, r *http.Request) {
+		var req sd400.CollarRequest
+		err = jsonpb.Unmarshal(r.Body, &req)
+		log.Println(err)
+		collar.SendCommand(context.Background(), &req)
+	}
+	fs := http.FileServer(http.Dir("static"))
+	router.Handle("/", fs)
+	router.HandleFunc("/cmd", cmdHandler).Methods("POST")
+
+	go func() {
+		log.Fatal(http.ListenAndServe(":8000", router))
+	}()
 
 	shell := ishell.New()
 
@@ -44,7 +83,7 @@ func main() {
 				c.Println(err)
 				return
 			}
-			remote.Beep(d)
+			collar.Beep(d)
 		},
 	})
 
@@ -61,7 +100,7 @@ func main() {
 				c.Println(err)
 				return
 			}
-			remote.Nick(level)
+			collar.Nick(level)
 		},
 	})
 
@@ -83,37 +122,11 @@ func main() {
 				c.Println(err)
 				return
 			}
-			remote.Shock(level, d)
+			collar.Shock(level, d)
 		},
 	})
 
 	shell.Println("SD400 remote by biribiribiri. Type \"help\" to get a list of commands.")
 	shell.Run()
 
-	// cmd := continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL1, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL2, 2*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL3, 3*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL4, 4*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL5, 5*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL6, 6*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL7, 7*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second) +
-	// 	continousCmd(REMOTE1, CMD_CONTINUOUS, ARG_LEVEL8, 15*time.Second) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL1) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL2) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL3) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL4) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL5) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL6) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL7) +
-	// 	momentaryCmd(REMOTE1, CMD_NICK, ARG_LEVEL8) +
-	// 	continousCmd(REMOTE1, CMD_BEEP, ARG_BEEP, 1*time.Second)
-	// sendCmd(cmd)
 }

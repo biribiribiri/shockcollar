@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package sd400;
+
+service Collar {
+  rpc SendCommand (CollarRequest) returns (CollarResponse) {}
+}
+
+message CollarRequest {
+	enum CommandType {
+		UNKNOWN = 0;
+		NICK = 1;
+		SHOCK = 2;
+		BEEP = 3;
+	}
+	CommandType type = 1;
+
+	// Command duration in milliseconds. Ignored for the NICK command.
+	int32 duration_ms = 2;
+
+	// Intensity for NICK and SHOCK commands. Ranges from 0 to 7 inclusive.
+	int32 intensity = 3;
+}
+
+message CollarResponse {
+}

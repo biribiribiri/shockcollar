@@ -3,11 +3,13 @@
 // Uses rpitx to transmit to the collar. To use, plug a wire on GPIO 4, i.e.
 // Pin 7 of the GPIO header (header P1). Note that rpitx requires root.
 
+//go:generate protoc -I ../sd400/ --go_out=plugins=grpc:../sd400 ../sd400/sd400.proto
 package sd400
 
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -68,6 +70,20 @@ func (s *Sd400) Beep(duration time.Duration) {
 	const CMD_BEEP = "59"
 	const ARG_BEEP = "a9"
 	s.sendCmd(s.continuousCmd(CMD_BEEP, ARG_BEEP, duration))
+}
+
+func (s *Sd400) SendCommand(ctx context.Context, request *CollarRequest) (*CollarResponse, error) {
+	log.Println("command: ", request.String())
+
+	switch request.GetType() {
+	case CollarRequest_NICK:
+		s.Nick(int(request.GetIntensity()))
+	case CollarRequest_SHOCK:
+		s.Shock(int(request.GetIntensity()), time.Millisecond*time.Duration(request.GetDurationMs()))
+	case CollarRequest_BEEP:
+		s.Beep(time.Millisecond * time.Duration(request.GetDurationMs()))
+	}
+	return &CollarResponse{}, nil
 }
 
 var shockArgs []string = []string{
