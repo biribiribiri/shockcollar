@@ -48,7 +48,7 @@ window.onload = function() {
 }
 
 let searchParams = new URLSearchParams(window.location.search)
-let server = searchParams.get('server')
+let server = searchParams.get('server') ? searchParams.get('server') : ""
 
         function sendCollarCmd(cmd) {
   console.log("cmd: " + JSON.stringify(cmd));
