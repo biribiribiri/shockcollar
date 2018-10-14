@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package sd400;
+package shockcollar;
 
 service Collar {
   rpc SendCommand (CollarRequest) returns (CollarResponse) {}

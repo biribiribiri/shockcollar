@@ -3,8 +3,8 @@
 // Uses rpitx to transmit to the collar. To use, plug a wire on GPIO 4, i.e.
 // Pin 7 of the GPIO header (header P1). Note that rpitx requires root.
 
-//go:generate protoc -I ../sd400/ --go_out=plugins=grpc:../sd400 ../sd400/sd400.proto
-package sd400
+//go:generate protoc -I ../shockcollar/ --go_out=plugins=grpc:../shockcollar ../shockcollar/shockcollar.proto
+package shockcollar
 
 import (
 	"bufio"

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/abiosoft/ishell"
-	"github.com/biribiribiri/sd400"
+	"github.com/biribiribiri/shockcollar"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
@@ -35,7 +35,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	collar := sd400.New(sd400.REMOTE1, *rpitx, *wavOutputPath)
+	collar := shockcollar.New(shockcollar.REMOTE1, *rpitx, *wavOutputPath)
 
 	// Start gRPC server.
 	lis, err := net.Listen("tcp", *grpcPort)
@@ -44,7 +44,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	sd400.RegisterCollarServer(s, &collar)
+	shockcollar.RegisterCollarServer(s, &collar)
 	reflection.Register(s)
 	go func() {
 		if err := s.Serve(lis); err != nil {
@@ -55,7 +55,7 @@ func main() {
 	router := mux.NewRouter()
 
 	cmdHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req sd400.CollarRequest
+		var req shockcollar.CollarRequest
 		err = jsonpb.Unmarshal(r.Body, &req)
 		log.Println(err)
 		collar.SendCommand(context.Background(), &req)

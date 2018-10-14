@@ -1,5 +1,11 @@
-# sd400
-Software remote for the Sportdog SD-400 Collar. Written in Go.
+[![GoDoc](https://godoc.org/github.com/biribiribiri/shockcollar?status.svg)](http://godoc.org/github.com/biribiribiri/shockcollar)
+
+# shockcollar
+Raspberry Pi based remote for the Sportdog SD-400 shock collar in Go. It uses
+rpitx to transmit RF directly to the GPIO. You *only* need a Raspberry Pi, no
+other equipment needed.
+
+[Web UI Demo](http://htmlpreview.github.io/?https://github.com/biribiribiri/shockcollar/blob/master/remote/static/index.html)
 
 ## Disclaimers
 
@@ -7,7 +13,47 @@ This software uses [rpitx](https://github.com/F5OEO/rpitx) to transmit RF
 signals directly from the Raspberry Pi's GPIO pins. Before you transmit, know
 your laws. You are responsible for using this software legally.
 
-## Introduction
+This software is really janky. I would strongly discourage you from using this
+for your production shock collar service. rpitx has also been reported to
+cause file system corruption in the past, so I would recommend backing up your
+Raspberry Pi before you attempt to use this software.
+
+This project is not associated with Sportdog.
+
+## Getting Started
+
+Plug a wire on [GPIO 4 (Pin 7)](https://pinout.xyz/pinout/pin7_gpio4) on the
+GPIO header. This will serve as the antenna.
+
+Then on your Raspberry Pi:
+```
+git clone https://github.com/F5OEO/rpitx.git
+cd rpitx
+./install.sh
+
+go get github.com/biribiribiri/shockcollar
+cd $GOPATH/src/github.com/biribiribiri/shockcollar
+go get ./...
+cd $GOPATH/src/github.com/biribiribiri/shockcollar/remote
+
+# Start the server. Collar commands can be sent via the CLI, gRPC, or via HTTP.
+# Needs to be run as root because rpitx needs to be run as root.
+# Probably not super secure...
+sudo ./remote --rpitx=$PATH_TO_RPITX
+```
+
+After starting the remote, you need to pair your collar:
+
+ 1. Turn the collar off.
+ 2. Press and hold the collar power button until the collar LED turns off
+    (4-5 seconds)
+ 3. Send the "continuous stimulation" (shock 1 8s) or "beep" (beep 8s) command
+    from the remote until the collar LED blinks 5 times.
+
+A simple web interface will start running on port 8000. You can use this to
+send commands to the collar.
+
+# Reverse Engineering Details
 
 The Sportdog Fieldtrainer 400 (SD-400) is a shock collar with momentary
 stimulation, continuous stimulation, and tone capabilities. The collar model
