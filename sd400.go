@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -187,7 +188,12 @@ func (s *Sd400) bin2waveform(binStr string) []wav.Sample {
 	return out
 }
 
+// Lock access to rpitx.
+var rpitxLock sync.Mutex
+
 func (s *Sd400) sendCmd(binStr string) {
+	rpitxLock.Lock()
+	defer rpitxLock.Unlock()
 	samples := s.bin2waveform(binStr)
 	samples = append(samples, make([]wav.Sample, s.sampleRate/10)...)
 
