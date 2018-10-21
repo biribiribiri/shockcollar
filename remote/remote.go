@@ -23,6 +23,8 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var rpitx = flag.String("rpitx", os.Getenv("HOME")+"/src/rpitx/rpitx", "path to rpitx")
 var wavOutputPath = flag.String("wavpath", "", "folder to store wav files to send to rpitx")
 var grpcPort = flag.String("port", ":50051", "Port for GRPC server to listen on")
+var cert = flag.String("cert", "", "HTTPS cert path; if not set then use HTTP")
+var cert_key = flag.String("cert_key", "", "HTTPS cert key path")
 
 func main() {
 	flag.Parse()
@@ -65,7 +67,11 @@ func main() {
 	router.HandleFunc("/cmd", cmdHandler).Methods("POST")
 
 	go func() {
-		log.Fatal(http.ListenAndServe(":8000", router))
+		if *cert == "" {
+			log.Fatal(http.ListenAndServe(":8000", router))
+		} else {
+			log.Fatal(http.ListenAndServeTLS(":8000", *cert, *cert_key, router))
+		}
 	}()
 
 	shell := ishell.New()
