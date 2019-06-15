@@ -29,6 +29,8 @@ Then on your Raspberry Pi:
 ```
 git clone https://github.com/F5OEO/rpitx.git
 cd rpitx
+# This is the version of rpitx I've tested with. Newer versions may or may not work.
+git checkout 1423af8c6eb201a92d992965e01073717cbc5fdb
 ./install.sh
 
 go get github.com/biribiribiri/shockcollar
